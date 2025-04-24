@@ -24,6 +24,8 @@
 #include "GameLogic.h"
 #include <math.h>
 #include "BulletLogic.h"
+#include "sounds.h"
+
 
 extern "C" void __disable_irq(void);
 extern "C" void __enable_irq(void);
@@ -47,7 +49,7 @@ static bool rightPlayerButton = true;
 
 static bool collision = false;
 
-
+static bool language = true;
 //My calm luh prototypes
 
 #define XOFFSETTANKDRAW 13
@@ -74,7 +76,7 @@ int16_t tank1x = 50;
 int16_t tank1y = 30;
 
 Tank player = Tank(120, 30, tankRotArray[0], 100, 20, 40);
-Tank bot = Tank(0, 30, tankRotArray[0], 100, 20, 40);
+Tank bot = Tank(XOFFSETTANKDRAW, 30, tankRotArray[0], 100, 20, 40);
 
 int16_t terrainHeights[ST7735_TFTHEIGHT];
 int16_t slopes[ST7735_TFTHEIGHT];
@@ -242,26 +244,44 @@ int main4(void){ uint32_t last=0,now;
   LaunchPad_Init();
   Switch_Init(); // initialize switches
   LED_Init(); // initialize LED
-  Sound_Init();  // initialize sound
+  //Sound_Init();  // initialize sound
   TExaS_Init(ADC0,6,0); // ADC1 channel 6 is PB20, TExaS scope
   __enable_irq();
   while(1){
-    now = Switch_In(); // one of your buttons
-    if((last == 0)&&(now == 1)){
-      Sound_Shoot(); // call one of your sounds
-    }
-    if((last == 0)&&(now == 2)){
-      Sound_Killed(); // call one of your sounds
-    }
-    if((last == 0)&&(now == 4)){
-      Sound_Explosion(); // call one of your sounds
-    }
-    if((last == 0)&&(now == 8)){
-      Sound_Fastinvader1(); // call one of your sounds
-    }
-    // modify this to test all your sounds
+    // now = Switch_In(); // one of your buttons
+    // if((last == 0)&&(now == 1)){
+    //   Sound_Win(); // call one of your sounds
+    // }
+    // if((last == 0)&&(now == 2)){
+    //   Sound_Button(); // call one of your sounds
+    // }
+    // if((last == 0)&&(now == 4)){
+    //   Sound_Button(); // call one of your sounds
+    // }
+    // if((last == 0)&&(now == 8)){
+    //   Sound_Button(); // call one of your sounds
+    // }
+    // // modify this to test all your sounds
+    Sound_Start(testSound, 32);
   }
 }
+
+const uint8_t testWave[16] = {
+  9, 10, 12, 14, 15, 14, 12, 10,
+  9,  7,  5,  4,  3,  4,  5,  7
+};
+
+// int main(void) {
+//   LaunchPad_Init(); // Initialize the LaunchPad
+//   PLL_Init();       // Initialize PLL
+//   Sound_Init(7273, 0); // Initialize sound with 7273 period (~11kHz)
+//   // DAC5_Init();      // Initialize the DAC
+//   Sound_Start(marioKartWinSound, 1500); // Play the test waveform
+
+//   while(1) {
+//     __asm("wfi");   // Wait for interrupt (low power idle)
+//   }
+// }
 
 
 // ALL ST7735 OUTPUT MUST OCCUR IN MAIN
@@ -277,7 +297,9 @@ int main(void){ // final main
   Sensor.Init(); // PB18 = ADC1 channel 5, slidepot
   Switch_Init(); // initialize switches
   LED_Init();    // initialize LED
-  Sound_Init();  // initialize sound
+  //Sound_Init();  // initialize sound
+  Sound_Init(7273, 0); // Initialize sound with 7273 period (~11kHz)
+
   TExaS_Init(0,0,&TExaS_LaunchPadLogicPB27PB26); // PB27 and PB26
     //note: if you colors are weird, see different options for
     // ST7735_InitR(INITR_REDTAB); inside ST7735_InitPrintf()
@@ -304,7 +326,7 @@ int main(void){ // final main
       }
 
       if ((GPIOA->DIN31_0 & (1 << 15)) != 0) {
-        //Sound_Button();
+        Sound_Button();
         if (data >= 2047) {
           drawEnglishSelectionScreen();
         } else {
@@ -319,7 +341,7 @@ int main(void){ // final main
 
     while (1) {
       if (GPIOA->DIN31_0 & (1 << 15)) {
-        //Sound_Button();
+        Sound_Button();
         ST7735_FillScreen(ST7735_BLACK);
         break;
       }
@@ -339,7 +361,7 @@ int main(void){ // final main
 
   player.setX(120);
   player.setY(terrainHeights[player.getX()]);
-  bot.setX(0);
+  bot.setX(XOFFSETTANKDRAW);
   bot.setY(terrainHeights[bot.getX()]);
   
   bullet.x = player.getX();
@@ -377,12 +399,16 @@ int main(void){ // final main
   // initialize all data structures
   __enable_irq();
 
+  drawHealthBar(bot.getHealth(), player.getHealth());
+
   while(1){
 
     if (bot.getHealth() <= 0 || player.getHealth() <= 0) {
     __disable_irq();
-    ST7735_SetRotation(0);
+    drawHealthBar(bot.getHealth(), player.getHealth());
+    Sound_Win();
     Clock_Delay1ms(1000);
+    ST7735_SetRotation(0);
     gameOver();
     break;
   }
@@ -439,10 +465,10 @@ int main(void){ // final main
           // ST7735_DrawRotateImageCCW90(tankRotArray[rotIndex], 27, 24, tankBuffer);
         // }else{
           // ST7735_copyToBuffer(tankRotArray[rotIndex], 27, 24, tankBuffer);
-          player.setImage(tankRotArray[0]);
+          player.setImage(tankRotArray[rotIndex]);
 
         }else{
-            player.setImage(tankRotArray[rotIndex]);
+            player.setImage(tankNegRotArray[rotIndex]);
         }
 
         ST7735_DrawBitmapWithBG(player.getX() - XOFFSETTANKDRAW, player.getY(), player.getImage(), TANKWIDTH, TANKHEIGHT, prettyTerrain);
@@ -480,8 +506,22 @@ int main(void){ // final main
           }
         }
 
+        bot.setImage(botNicePicture);
+
         //Moving bot once position is set
-        bot.setImage(tankRotArray[0]);
+        // bot.setImage(tankRotArray[0]);
+        // rotIndex = slopes[bot.getX()];
+
+        // if(rotIndex > 5){
+        //   rotIndex = 5;
+        // }
+        // if(rotIndex < 0){
+        //   rotIndex = rotIndex * -1;
+        //   player.setImage(tankRotArray[rotIndex]);
+
+        // }else{
+        //     player.setImage(tankNegRotArray[rotIndex]);
+        // }
 
         ST7735_DrawBitmapWithBG(bot.getX() - XOFFSETTANKDRAW, bot.getY(), bot.getImage(), TANKWIDTH, TANKHEIGHT, prettyTerrain);
 
@@ -516,6 +556,7 @@ static void drawBullet(int16_t x, int16_t y, uint16_t color) {
 }
 
 void spawnBulletFromTank(Tank *playerOne, Bullet *bullet, bool playerTurn) {
+  Sound_Shoot();
   int16_t px = playerOne->getX();
   int16_t py = playerOne->getY();
 
@@ -763,23 +804,32 @@ void drawWelcomeScreen() {
 
 void gameOver(void) {
   ST7735_FillScreen(ST7735_WHITE);
-  //Sound_Win();
-  const char *gameOverText = "GAME OVER!";
-  const char *restartText = "RESTART";
+  Sound_Win();
+  if (language) {
+    const char *gameOverText = "GAME OVER!";
 
-  int k = 6;
-  for (int i = 0; gameOverText[i] != '\0'; i++) {
-    ST7735_DrawChar(k, 40, gameOverText[i], ST7735_RED, ST7735_WHITE, 2);
-    k += 12;
+    int k = 6;
+    for (int i = 0; gameOverText[i] != '\0'; i++) {
+      ST7735_DrawChar(k, 40, gameOverText[i], ST7735_RED, ST7735_WHITE, 2);
+      k += 12;
+    }
+  } else {
+      const char *gameOverText1 = "JUEGO";
+      const char *gameOverText2 = "TERMINADO";
+
+    int k = 34;
+    for (int i = 0; gameOverText1[i] != '\0'; i++) {
+      ST7735_DrawChar(k, 40, gameOverText1[i], ST7735_RED, ST7735_WHITE, 2);
+      k+=12;
+    }
+
+    k = 13;
+    for (int i = 0; gameOverText2[i] != '\0'; i++) {
+      ST7735_DrawChar(k, 80, gameOverText2[i], ST7735_RED, ST7735_WHITE, 2);
+      k+=12;
+    }
   }
 
-  drawRoundedButton(10, 80, 108, 25, ST7735_MAGENTA, ST7735_CYAN);
-  int centerX = 40; 
-  k = centerX;
-  for (int i = 0; restartText[i] != '\0'; i++) {
-    ST7735_DrawChar(k, 87, restartText[i], ST7735_BLACK, ST7735_CYAN, 1);
-    k += 6;
-  }
 }
 
 void drawHealthBar(int32_t health1, int32_t health2) {
@@ -837,9 +887,11 @@ void drawButtonWithLabel(int x, int y, uint16_t bgColor, uint16_t textColor, con
 
 void drawLanguageButtons(bool englishSelected) {
   if (englishSelected) {
+    language = true;
     drawButtonWithLabel(10, 80, ST7735_CYAN, ST7735_BLACK, "English");
     drawButtonWithLabel(10, 110, ST7735_BLUE, ST7735_WHITE, "Spanish");
   } else {
+    language = false;
     drawButtonWithLabel(10, 80, ST7735_BLUE, ST7735_WHITE, "English");
     drawButtonWithLabel(10, 110, ST7735_CYAN, ST7735_BLACK, "Spanish");
   }
