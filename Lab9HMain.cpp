@@ -45,6 +45,7 @@ static bool isBotMoving = true;
 static bool leftPlayerButton = true;
 static bool rightPlayerButton = true;
 
+static bool collision = false;
 
 
 //My calm luh prototypes
@@ -56,6 +57,8 @@ static bool rightPlayerButton = true;
 #define AIM_LENGTH 20
 #define HITBOXPAD 0
 #define HITBOXVERTICALSHIFT 0
+
+#define BULLETWIDTH 6
 
 
 // ****note to ECE319K students****
@@ -387,7 +390,10 @@ int main(void){ // final main
     // wait for semaphore
     while(semaphore){}
     if(drawFlag){
-      drawHealthBar(bot.getHealth(), player.getHealth());
+      if(collision){
+        drawHealthBar(bot.getHealth(), player.getHealth());
+        collision = false;
+      }
       if(playerTurn){
 
       
@@ -452,7 +458,7 @@ int main(void){ // final main
           ST7735_DrawBitmapWithBG(bot.getX() - XOFFSETTANKDRAW, bot.getY(), bot.getImage(), TANKWIDTH, TANKHEIGHT, prettyTerrain);
           Clock_Delay1ms(1000);
           //Need to make some random angle that it shoots at
-          int tempRand = Random(60);
+          int tempRand = Random(50);
           tempRand += 30;
           // tempRand += (player.getX() - bot.getX()) *20;
           // if(tempRand >= 4095) tempRand = 4095;
@@ -533,71 +539,107 @@ void spawnBulletFromTank(Tank *playerOne, Bullet *bullet, bool playerTurn) {
 }
 
 void updateBullet(Bullet *bullet, Tank target, bool playerTurnBullet) {
+  // Early return if bullet is not active
   if (!bullet->active) {
     return;
   }
-  ST7735_MakeBGTransparent(bullet->x, bullet->y, BulletImage, 6, 6,
-                           prettyTerrain);
+  
+  // Validate bullet pointer
+  if (bullet == NULL) {
+    return;
+  }
+  
+  // Save previous position to restore background later
+  int16_t prevX = bullet->x;
+  int16_t prevY = bullet->y;
+  
+  // Clear bullet from previous position if within bounds
+  if (prevX >= 0 && prevX < 160 - 6 && prevY >= 0 && prevY < 128 - 6) {
+    ST7735_MakeBGTransparent(prevX, prevY, BulletImage, 6, 6, prettyTerrain);
+  }
 
-  bullet->x -= bullet->vx; // updates pos
+  // Update bullet position
+  bullet->x -= bullet->vx;
   bullet->y += bullet->vy;
 
-    //if outside of x quit
-  if(bullet->x < 0 || bullet->x >= 160){
+  // Check for out of bounds in X direction FIRST
+  if (bullet->x < 0 || bullet->x >= 160 - BULLETWIDTH) {
+    // Safely cap values to prevent array out-of-bounds access
+    if (bullet->x < 0) {
+      bullet->x = 0;
+    } else {
+      bullet->x = 159 - BULLETWIDTH;
+    }
+    
+    // Deactivate bullet and switch players
     bullet->active = false;
     switchPlayers();
     return;
   }
+  
+  // // Check for out of bounds in Y direction
+  // if (bullet->y < 0 || bullet->y >= 128 - 6) {
+  //   // Safely cap values
+  //   if (bullet->y < 0) {
+  //     bullet->y = 0;
+  //   } else {
+  //     bullet->y = 127 - 6;
+  //   }
+    
+  //   // Deactivate bullet and switch players
+  //   bullet->active = false;
+  //   switchPlayers();
+  //   return;
+  // }
 
-
-  // slowing it down
-  if (bullet->x % 10 == 0) {
+  // Apply gravity (slowing it down)
+  if (bullet->x % 4 == 0) {
     bullet->vy += 1; // gravity
   }
 
-  // Condition for termination is not out of bounds its either collision or past
-  // the tank's position
-
-
-  // If within bounds of screen, if not keep
-  if (!(bullet->y >= 160 - 3 ||
-        bullet->y < 0)) { // boundary check
-    // drawBullet(bullet.x, bullet.y, ST7735_WHITE);
-
-    if (bullet->y >= target.getY() - TANKHEIGHT + HITBOXVERTICALSHIFT && bullet->y <= target.getY() + HITBOXVERTICALSHIFT &&
-        bullet->x > target.getX() - HITBOXPAD - XOFFSETTANKDRAW &&
-        bullet->x < target.getX() + HITBOXPAD + TANKWIDTH - XOFFSETTANKDRAW) {
-      // Collision, erase bullet and run collision code/method
+  // Check for collision with target tank
+  // Ensure all comparisons use safe bounds
+  if (bullet->y >= target.getY() - TANKHEIGHT + HITBOXVERTICALSHIFT && 
+      bullet->y <= target.getY() + HITBOXVERTICALSHIFT &&
+      bullet->x > target.getX() - HITBOXPAD - XOFFSETTANKDRAW &&
+      bullet->x < target.getX() + HITBOXPAD + TANKWIDTH - XOFFSETTANKDRAW) {
+    
+    // Handle collision with tank
+    bullet->active = false;
+    
+    // Apply damage based on whose turn it is
+    if (playerTurnBullet) {
+      bot.takeDamage(40);
+    } else {
+      player.takeDamage(40);
+    }
+    
+    collision = true;
+    switchPlayers();
+    return;
+  } 
+  
+  // Check for collision with terrain
+  // Ensure bullet->x is valid for array access
+  if (bullet->x >= 0 && bullet->x < 160 && bullet->y >= 0 && bullet->y < 128) {
+    // Safe array access - double check bounds
+    if (bullet->y >= terrainHeights[bullet->x]) {
       bullet->active = false;
-      // Collison logic, for now filling the screen with black and disabling
-      // interupts
-      if(playerTurnBullet){
-        bot.takeDamage(100);
-      }else{
-        player.takeDamage(100);
-      }
       switchPlayers();
       return;
-    } else if(bullet->y >= terrainHeights[bullet->x]) {
-      bullet->active = false;
-      // Run code for miss
-       switchPlayers();
-      return;
-    } else {
-      // If not hit the terrain or a tank, keep displaying and updating on lcd
-      ST7735_DrawBitmapWithBG(bullet->x, bullet->y, BulletImage, 6, 6,
-                              prettyTerrain);
     }
   }
-
-  // ST7735_MakeBGTransparent(bullet->x, bullet->y, BulletImage, 6, 6,
-  // prettyTerrain);
+  
+  // Only draw the bullet if it's within display bounds
+  if (bullet->active && bullet->x >= 0 && bullet->x < 160 - 6 && bullet->y >= 0 && bullet->y < 128 - 6) {
+    ST7735_DrawBitmapWithBG(bullet->x, bullet->y, BulletImage, 6, 6, prettyTerrain);
+  }
 }
 
 void switchPlayers() {
   randomNumber = Random(40);
   M++;
-  if (randomNumber % 10 == 0 && bot.getX() - randomNumber - XOFFSETTANKDRAW > 0) {
+  if (randomNumber % 2 == 0 && bot.getX() - randomNumber - XOFFSETTANKDRAW > 0) {
     randomNumber = -1 * randomNumber;
   }
   playerTurn = !playerTurn;
